@@ -1,11 +1,11 @@
 import copy
-import math
+
 import os
 import random
 import re
 from collections import defaultdict
 
-import hdbscan
+
 import numpy as np
 import sklearn.metrics.pairwise as smp
 import torch
@@ -19,6 +19,10 @@ from torch.nn.utils import parameters_to_vector, vector_to_parameters
 from FL_Backdoor_CV.models.create_model import create_model
 from FL_Backdoor_CV.roles.evaluation import test_cv, test_poison_cv
 from configs import args
+from FL_Backdoor_CV.roles.aggregation_rules import roseagg
+from FL_Backdoor_CV.roles.aggregation_rules import avg
+from FL_Backdoor_CV.roles.aggregation_rules import foolsgold
+from FL_Backdoor_CV.roles.aggregation_rules import flame
 
 
 def softmax(x):
@@ -110,6 +114,8 @@ class Server:
                 self.poison_rounds = list(self.poison_rounds)
             args.poison_rounds = self.poison_rounds
             print(f"\n--------------------- P o i s o n - R o u n d s : {self.poison_rounds} ---------------------\n")
+        else:
+            print(f"\n--------------------- P o i s o n - R o u n d s : N o n e ! ---------------------\n")
 
         # === root dataset ===
         self.root_dataset = None
@@ -191,19 +197,19 @@ class Server:
                                                      dim=0)
 
         # === model updates ===
-        previous_model_params = None
-        previous_model_update = None
-        last_model_params = None
+        # previous_model_params = None
+        # previous_model_update = None
+        # last_model_params = None
+        # if args.gradient_correction:
+        #     previous_model_params = self.previous_models[0].state_dict()
+        #     previous_model_update = dict()
+        #     last_model_params = dict()
         model_updates = dict()
-        if args.gradient_correction:
-            previous_model_params = self.previous_models[0].state_dict()
-            previous_model_update = dict()
-            last_model_params = dict()
         for (name, param), local_param in zip(self.model.state_dict().items(), trained_models.values()):
             model_updates[name] = local_param.data - param.data.view(1, -1)
-            if args.gradient_correction:
-                previous_model_update[name] = param.data.view(1, -1) - previous_model_params[name].view(1, -1)
-                last_model_params[name] = param.data.view(1, -1)
+            # if args.gradient_correction:
+            #     previous_model_update[name] = param.data.view(1, -1) - previous_model_params[name].view(1, -1)
+            #     last_model_params[name] = param.data.view(1, -1)
             if args.attack_mode in ['MR', 'DBA', 'FLIP', 'EDGE_CASE', 'NEUROTOXIN', 'COMBINE']:
                 if 'num_batches_tracked' not in name:
                     for i in range(args.participant_sample_size):
@@ -223,20 +229,20 @@ class Server:
                                                     (args.number_of_adversaries / args.dba_trigger_num)
                             model_updates[name][i] *= (mal_boost / args.global_lr)
 
-        if args.gradient_correction:
-            if len(self.previous_models) == args.windows:
-                self.previous_models.pop(0)
+        # if args.gradient_correction:
+        #     if len(self.previous_models) == args.windows:
+        #         self.previous_models.pop(0)
 
         # === aggregate ===
         global_update = None
         if args.aggregation_rule.lower() == 'avg':
-            global_update = Server.avg(model_updates)
-        elif args.aggregation_rule.lower() == 'fedcie':
-            global_update = Server.fedcie(model_updates, previous_model_update, last_model_params)
+            global_update = avg(model_updates)
+        # elif args.aggregation_rule.lower() == 'fedcie':
+        #     global_update = Server.fedcie(model_updates, previous_model_update, last_model_params)
         elif args.aggregation_rule.lower() == 'roseagg':
-            global_update = Server.roseagg(model_updates, current_round=self.current_round)
+            global_update = roseagg(model_updates, current_round=self.current_round)
         elif args.aggregation_rule.lower() == 'foolsgold':
-            global_update = Server.foolsgold(model_updates)
+            global_update = foolsgold(model_updates)
         elif args.aggregation_rule.lower() == 'rlr':
             global_update = Server.robust_lr(model_updates)
         elif args.aggregation_rule.lower() == 'fltrust':
@@ -291,14 +297,8 @@ class Server:
             global_update = Server.fltrust(model_updates, param_updates, clean_param_update)
             global_lr = 0.2
         elif args.aggregation_rule.lower() == 'flame':
-            # current_model_param = None
-            # for name, param in self.model.state_dict().items():
-            #     if current_model_param is not None:
-            #         current_model_param = torch.cat((current_model_param, param.detach().cpu().view(-1)))
-            #     else:
-            #         current_model_param = param.detach().cpu().view(-1)
             current_model_param = parameters_to_vector(self.model.parameters()).detach().cpu()
-            global_param, global_update = Server.flame(trained_params, current_model_param, model_updates)
+            global_param, global_update = flame(trained_params, current_model_param, model_updates)
             vector_to_parameters(global_param, self.model.parameters())
             model_param = self.model.state_dict()
             for name, param in model_param.items():
@@ -314,10 +314,10 @@ class Server:
         self.model.load_state_dict(model_param)
 
         # === update previous models ===
-        if args.aggregation_rule.lower() == 'fedcie':
-            previous_model = copy.deepcopy(self.model)
-            previous_model.load_state_dict(self.model.state_dict())
-            self.previous_models.append(previous_model)
+        # if args.aggregation_rule.lower() == 'fedcie':
+        #     previous_model = copy.deepcopy(self.model)
+        #     previous_model.load_state_dict(self.model.state_dict())
+        #     self.previous_models.append(previous_model)
 
     def validate(self):
         with torch.no_grad():
@@ -337,12 +337,6 @@ class Server:
                 test_l, test_acc = test_poison_cv(self.helper, self.helper.poisoned_test_data, self.model)
                 return test_l, test_acc
 
-    @staticmethod
-    def avg(model_updates):
-        global_update = dict()
-        for name, data in model_updates.items():
-            global_update[name] = 1 / args.participant_sample_size * model_updates[name].sum(dim=0, keepdim=True)
-        return global_update
 
     @staticmethod
     def fedcie(model_updates, previous_model_update=None, last_model_params=None):
@@ -561,7 +555,7 @@ class Server:
         return global_update
 
     @staticmethod
-    def roseagg(model_updates, important_feature_indices=None, current_round=0):
+    def roseagg_old(model_updates, important_feature_indices=None, current_round=0):
 
         def kl_distance(x, y):
             # sim_signs = len(sign_1) - torch.count_nonzero(torch.tensor(sign_1) - torch.tensor(sign_2))
@@ -577,18 +571,21 @@ class Server:
         """
         keys = list(model_updates.keys())
         last_layer_updates = F.normalize(model_updates[keys[-2]])
+        K = len(last_layer_updates)
 
+        """
         length = len(last_layer_updates[0]) // 10
         layer_sum_last_layer_updates = torch.ones(len(last_layer_updates), 10).to(args.device)
         for i in range(layer_sum_last_layer_updates.size(0)):
             for j in range(layer_sum_last_layer_updates.size(1)):
                 layer_sum_last_layer_updates[i][j] = last_layer_updates[i][j * length: (j + 1) * length].detach().sum()
 
-        K = len(last_layer_updates)
-        # distance_matrix = smp.cosine_similarity(layer_sum_last_layer_updates.cpu().numpy()) - np.eye(K)
         distance_matrix = pairwise_distances(torch.sign(last_layer_updates).cpu().numpy(),
                                              metric=kl_distance) - np.eye(K)
         np.savetxt('distance_matrix.txt', distance_matrix)
+        """
+
+        distance_matrix = smp.cosine_similarity(last_layer_updates.cpu().numpy()) - np.eye(K)
 
         """
         clustering distance matrix using dbscan
@@ -644,6 +641,7 @@ class Server:
         print(f'Possible malicious indices: {mal_idxs}, '
               f'Clusters: {reserve_idxs}, {cluster.labels_}')
 
+        """
         np.set_printoptions(threshold=np.inf)
         np.set_printoptions(suppress=True)
 
@@ -655,6 +653,7 @@ class Server:
             print('=== === === === === === === === === === === === === === === === === === === === === === ===\n')
         print(layer_sum_last_layer_updates.detach().cpu().numpy())
         exit(0)
+        """
 
         """
         compute a weight vector according to the cluster result
@@ -755,48 +754,6 @@ class Server:
         return global_update
 
     @staticmethod
-    def foolsgold(model_updates):
-        keys = list(model_updates.keys())
-        last_layer_updates = model_updates[keys[-2]]
-        K = len(last_layer_updates)
-        cs = smp.cosine_similarity(last_layer_updates.cpu().numpy()) - np.eye(K)
-        maxcs = np.max(cs, axis=1)
-        # pardoning
-        for i in range(K):
-            for j in range(K):
-                if i == j:
-                    continue
-                if maxcs[i] < maxcs[j]:
-                    cs[i][j] = cs[i][j] * maxcs[i] / maxcs[j]
-
-        alpha = np.max(cs, axis=1)
-        wv = 1 - alpha
-        wv[wv > 1] = 1
-        wv[wv < 0] = 0
-
-        # Rescale so that max value is wv
-        wv = wv / np.max(wv)
-        wv[(wv == 1)] = .99
-
-        # Logit function
-        wv = (np.log(wv / (1 - wv)) + 0.5)
-        wv[(np.isinf(wv) + wv > 1)] = 1
-        wv[(wv < 0)] = 0
-        print(f'the weight of each model update: {wv}')
-        # calculate global update
-        global_update = dict()
-        for name in keys:
-            tmp = None
-            for i, j in enumerate(range(len(wv))):
-                if i == 0:
-                    tmp = model_updates[name][j] * wv[j]
-                else:
-                    tmp += model_updates[name][j] * wv[j]
-            global_update[name] = 1 / len(wv) * tmp
-
-        return global_update
-
-    @staticmethod
     def robust_lr(model_updates):
         global_update = dict()
         for name, param in model_updates.items():
@@ -837,51 +794,3 @@ class Server:
                                                    params * torch.tensor(normalize_weights).to(args.device).view(-1, 1))
         return global_update
 
-    @staticmethod
-    def flame(trained_params, current_model_param, param_updates):
-        # === clustering ===
-        trained_params = torch.stack(trained_params).double()
-        cluster = hdbscan.HDBSCAN(metric="cosine", algorithm="generic",
-                                  min_cluster_size=args.participant_sample_size // 2 + 1,
-                                  min_samples=1, allow_single_cluster=True)
-        cluster.fit(trained_params)
-        predict_good = []
-        for i, j in enumerate(cluster.labels_):
-            if j == 0:
-                predict_good.append(i)
-
-        # === median clipping ===
-        model_updates = trained_params[predict_good] - current_model_param
-        local_norms = torch.norm(model_updates, dim=1)
-        S_t = torch.median(local_norms)
-        scale = S_t / local_norms
-        scale = torch.where(scale > 1, torch.ones_like(scale), scale)
-        model_updates = model_updates * scale.view(-1, 1)
-
-        # === aggregating ===
-        trained_params = current_model_param + model_updates
-        trained_params = trained_params.sum(dim=0) / len(trained_params)
-
-        # === noising ===
-        delta = 1 / (args.participant_sample_size ** 2)
-        epsilon = 300
-        lambda_ = 1 / epsilon * (math.sqrt(2 * math.log((1.25 / delta))))
-        sigma = lambda_ * S_t.numpy()
-        print(f"sigma: {sigma}; clean models: {predict_good}, median norm: {S_t}")
-        trained_params.add_(torch.normal(0, sigma, size=trained_params.size()))
-
-        # === bn ===
-        global_update = dict()
-        for name, param in param_updates.items():
-            if 'num_batches_tracked' in name:
-                global_update[name] = 1 / args.participant_sample_size * \
-                                      param_updates[name][predict_good].sum(dim=0, keepdim=True)
-            elif 'running_mean' in name or 'running_var' in name:
-                local_norms = torch.norm(param_updates[name][predict_good], dim=1)
-                S_t = torch.median(local_norms)
-                scale = S_t / local_norms
-                scale = torch.where(scale > 1, torch.ones_like(scale), scale)
-                global_update[name] = param_updates[name][predict_good] * scale.view(-1, 1)
-                global_update[name] = 1 / args.participant_sample_size * global_update[name].sum(dim=0, keepdim=True)
-
-        return trained_params.float().to(args.device), global_update

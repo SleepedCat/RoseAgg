@@ -26,17 +26,14 @@ parser.add_argument('--resume', default=0, type=int,
 
 parser.add_argument('--resumed_name', default=None, type=str)
 
-parser.add_argument('--device', default='cuda:0', type=str,
-                    help='device')
-
-parser.add_argument('--rounds', default=3000, type=int,
+parser.add_argument('--rounds', default=2000, type=int,
                     help='total rounds for convergence')
 
 # === client selection mode ===
-parser.add_argument('--participant_population', default=100, type=int,
+parser.add_argument('--participant_population', default=500, type=int,
                     help='total clients')
 
-parser.add_argument('--participant_sample_size', default=20, type=int,
+parser.add_argument('--participant_sample_size', default=100, type=int,
                     help='participants each round')
 
 parser.add_argument('--is_poison', default=0, type=int,
@@ -58,16 +55,21 @@ parser.add_argument('--poison_prob', type=float, default=0,
                     help='poison probability each round')
 
 # === aggregation rule on the server ===
-parser.add_argument('--aggregation_rule', default='avg', type=str,
+parser.add_argument('--aggregation_rule', default='flame', type=str,
                     choices=['avg', 'rlr', 'flame', 'foolsgold', 'roseagg', 'fltrust', 'fedcie'],
                     help='aggregation method')
+
+parser.add_argument('--device', default='cuda:1', type=str,
+                    help='device')
 
 # === configuration of local training ===
 parser.add_argument('--local_lr', type=float, default=0.1,
                     help='learning rate')
 
-parser.add_argument('--local_lr_decay', type=float, default=0.996,
+parser.add_argument('--local_lr_decay', type=float, default=0.991,
                     help='learning rate decay')
+
+parser.add_argument('--decay_step', type=int, default=5)
 
 parser.add_argument('--local_lr_min', type=float, default=0.001,
                     help='')
@@ -118,13 +120,13 @@ parser.add_argument('--record_step', default=100, type=int,
                     help='save the model every {record_step} round')
 
 parser.add_argument('--record_res_step', default=20, type=int,
-                    help='save the model every {record_step} round')
+                    help='save the model every {record_res_step} round')
 
 # === roseagg ===
-parser.add_argument('--threshold', default=0.45, type=float,
+parser.add_argument('--threshold', default=0.2, type=float,
                     help='similarity threshold between two model updates, >{threshold} ---> cluster')
 
-parser.add_argument('--gradient_correction', default=1, type=int,
+parser.add_argument('--gradient_correction', default=0, type=int,
                     help='whether correct the gradient')
 
 parser.add_argument('--correction_coe', default=0.1, type=float,
@@ -136,7 +138,7 @@ parser.add_argument('--perturbation_coe', default=0.8, type=float,
 parser.add_argument('--windows', default=0, type=int,
                     help='window of previous gradient')
 
-parser.add_argument('--cia_evaluation', default=0, type=int,
+parser.add_argument('--cie_evaluation', default=0, type=int,
                     help='ablation: evaluate clean ingredient analysis')
 
 # === rlr ===

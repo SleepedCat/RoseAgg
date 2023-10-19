@@ -140,8 +140,8 @@ class Trainer:
         localtime = time.localtime(time.time())
         path = f"{args.aggregation_rule}_{args.attack_mode}_" \
                f"{localtime[1]:02}{localtime[2]:02}{localtime[3]:02}{localtime[4]:02}"
-        saved_model_path = os.path.join('../saved_models', path)
-        saved_results_path = os.path.join('../results', args.aggregation_rule)
+        saved_model_path = os.path.join('../saved_models/Revision_1', path)
+        saved_results_path = os.path.join('../results/Revision_1', args.aggregation_rule)
         res_path = os.path.join(saved_results_path, f"{args.dataset}_{path}.pt")
         arg_path = os.path.join(saved_results_path, f"{args.dataset}_{path}.txt")
         if not os.path.exists(saved_results_path):

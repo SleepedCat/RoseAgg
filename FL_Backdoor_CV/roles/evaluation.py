@@ -12,7 +12,7 @@ def test_cv(data_source, model):
     num_data = 0.0
     for batch_id, batch in enumerate(data_iterator):
         data, targets = batch
-        data, targets = data.cuda(), targets.cuda()
+        data, targets = data.to(args.device), targets.to(args.device)
 
         output = model(data)
         total_loss += F.cross_entropy(output, targets, reduction='sum').item()
@@ -45,8 +45,8 @@ def test_poison_cv(helper, data_source, model, adversarial_index=-1):
                 batch[1][pos] = helper.params['poison_label_swap']
 
             data, target = batch
-        data = data.cuda()
-        target = target.long().cuda()
+        data = data.to(args.device)
+        target = target.long().to(args.device)
         data.requires_grad_(False)
         target.requires_grad_(False)
 

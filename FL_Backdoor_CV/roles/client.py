@@ -213,7 +213,14 @@ class Client:
                   f"Test loss: {test_loss: .4f}.")
         else:
             # === optimizer and local epochs ===
-            # if args.aggregation_rule == 'roseagg':
+            if args.aggregation_rule.lower() in ['roseagg', 'avg']:
+                if epoch > 500:
+                    lr = args.local_lr * args.local_lr_decay ** ((epoch - 500) // args.decay_step)
+                else:
+                    lr = args.local_lr
+            elif args.aggregation_rule.lower() in ['flame', 'foolsgold']:
+                lr = args.local_lr
+            """
             lr = args.local_lr
             if args.dataset.lower() == 'cifar10':
                 if args.aggregation_rule == 'fedcie':
@@ -227,6 +234,7 @@ class Client:
             elif args.dataset.lower() == 'fmnist':
                 if epoch > 200:
                     lr = lr * 0.993 ** (epoch - 200)
+            """
             if args.is_poison:
                 lr = args.local_lr_min
             # else:
