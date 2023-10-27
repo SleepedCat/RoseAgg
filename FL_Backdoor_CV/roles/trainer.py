@@ -42,7 +42,6 @@ class Trainer:
         # === Add additional fields to the loaded params based on args ===
         params_loaded.update(vars(args))
         if params_loaded['dataset'] == 'cifar10' or \
-                params_loaded['dataset'] == 'cifar100' or \
                 params_loaded['dataset'] == 'emnist' or \
                 params_loaded['dataset'] == 'fmnist':
             dataset_name = params_loaded['dataset']
@@ -61,9 +60,10 @@ class Trainer:
         start_time = time.time()
         print(f"--------------------- L O A D I N G - D A T A ---------------------")
         helper = ImageHelper(params=self.params_loaded)
-        helper.load_data_cv()
-        helper.load_benign_data_cv()
-        helper.load_poison_data_cv()
+        helper.load_data()
+        helper.load_distributed_data()
+        helper.load_benign_data()
+        helper.load_poison_data()
         plot = False
         if plot:
             for batch in helper.poisoned_train_data:

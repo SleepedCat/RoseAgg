@@ -55,7 +55,7 @@ parser.add_argument('--poison_prob', type=float, default=0,
                     help='poison probability each round')
 
 # === aggregation rule on the server ===
-parser.add_argument('--aggregation_rule', default='flame', type=str,
+parser.add_argument('--aggregation_rule', default='fltrust', type=str,
                     choices=['avg', 'rlr', 'flame', 'foolsgold', 'roseagg', 'fltrust', 'fedcie'],
                     help='aggregation method')
 
@@ -142,7 +142,7 @@ parser.add_argument('--cie_evaluation', default=0, type=int,
                     help='ablation: evaluate clean ingredient analysis')
 
 # === rlr ===
-parser.add_argument('--robustLR_threshold', default=5, type=int,
+parser.add_argument('--robustLR_threshold', default=10, type=int,
                     help='')
 
 

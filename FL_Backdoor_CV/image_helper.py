@@ -37,54 +37,95 @@ class ImageHelper(Helper):
 
     def __init__(self, params):
         super(ImageHelper, self).__init__(params)
-        self.edge_case = self.params['edge_case']
-        self.range_no_id = None
 
-    def load_benign_data_cv(self):
-        if self.params['model'] == 'resnet':
-            if self.params['dataset'] == 'cifar10' or \
-                    self.params['dataset'] == 'cifar100' or \
-                    self.params['dataset'] == 'emnist' or \
-                    self.params['dataset'] == 'fmnist':
-                self.load_benign_data_cifar10_resnet()
-            else:
-                raise ValueError('Unrecognized dataset')
-        else:
-            raise ValueError('Unrecognized dataset')
+    # === loading distributed training set and a global testing set ===
+    def load_data(self):
+        # === data load ===
+        if self.params['dataset'] == 'cifar10':
+            transform_train = transforms.Compose([
+                transforms.RandomCrop(32, padding=4),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ])
 
-    def load_poison_data_cv(self):
-        if self.params['model'] == 'resnet':
-            if self.params['dataset'] == 'cifar10' or \
-                    self.params['dataset'] == 'cifar100' or \
-                    self.params['dataset'] == 'emnist' or \
-                    self.params['dataset'] == 'fmnist':
-                self.poisoned_train_data = self.poison_dataset()
-                self.poisoned_test_data = self.poison_test_dataset()
+            transform_test = transforms.Compose([
+                transforms.ToTensor(),
+                transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
+            ])
 
-            else:
-                raise ValueError('Unrecognized dataset')
-        else:
-            raise ValueError('Unknown model')
+            self.train_dataset = datasets.CIFAR10(self.params['data_folder'], train=True, download=True,
+                                                  transform=transform_train)
+            self.test_dataset = datasets.CIFAR10(self.params['data_folder'], train=False, transform=transform_test)
 
-    def sample_dirichlet_train_data(self, no_participants, alpha=0.9):
-        """
-            Input: Number of participants and alpha (param for distribution)
-            Output: A list of indices denoting data in CIFAR training set.
-            Requires: cifar_classes, a preprocessed class-indice dictionary.
-            Sample Method: take a uniformly sampled 10-dimension vector as parameters for
-            dirichlet distribution to sample number of images in each class.
-        """
-        cifar_classes = {}
+        if self.params['dataset'] == 'emnist':
+            if self.params['emnist_style'] == 'digits':
+                self.train_dataset = EMNIST(self.params['data_folder'], split="digits", train=True, download=True,
+                                            transform=transforms.Compose([
+                                                transforms.RandomCrop(28, padding=2),
+                                                transforms.ToTensor(),
+                                                transforms.Normalize((0.1307,), (0.3081,))
+                                            ]))
+                self.test_dataset = EMNIST(self.params['data_folder'], split="digits", train=False, download=True,
+                                           transform=transforms.Compose([
+                                               transforms.ToTensor(),
+                                               transforms.Normalize((0.1307,), (0.3081,))
+                                           ]))
+
+            elif self.params['emnist_style'] == 'byclass':
+                self.train_dataset = EMNIST(self.params['data_folder'], split="byclass", train=True, download=True,
+                                            transform=transforms.Compose([
+                                                transforms.RandomCrop(28, padding=2),
+                                                transforms.ToTensor(),
+                                                transforms.Normalize((0.1307,), (0.3081,))
+                                            ]))
+                self.test_dataset = EMNIST(self.params['data_folder'], split="byclass", train=False, download=True,
+                                           transform=transforms.Compose([
+                                               transforms.ToTensor(),
+                                               transforms.Normalize((0.1307,), (0.3081,))
+                                           ]))
+
+            elif self.params['emnist_style'] == 'letters':
+                self.train_dataset = EMNIST(self.params['data_folder'], split="letters", train=True, download=True,
+                                            transform=transforms.Compose([
+                                                transforms.RandomCrop(28, padding=2),
+                                                transforms.ToTensor(),
+                                                transforms.Normalize((0.1307,), (0.3081,))
+                                            ]))
+                self.test_dataset = EMNIST(self.params['data_folder'], split="letters", train=False, download=True,
+                                           transform=transforms.Compose([
+                                               transforms.ToTensor(),
+                                               transforms.Normalize((0.1307,), (0.3081,))
+                                           ]))
+
+        if self.params['dataset'] == 'fmnist':
+            self.train_dataset = datasets.FashionMNIST(self.params['data_folder'], train=True, download=False,
+                                                       transform=transforms.Compose([
+                                                           transforms.ToTensor(),
+                                                           transforms.Normalize((0.1307,), (0.3081,))
+                                                       ]))
+            self.test_dataset = datasets.FashionMNIST(self.params['data_folder'], train=False, download=False,
+                                                      transform=transforms.Compose([
+                                                          transforms.ToTensor(),
+                                                          transforms.Normalize((0.1307,), (0.3081,))
+                                                      ]))
+
+    def get_img_classes(self):
+        img_classes = {}
         for ind, x in enumerate(self.train_dataset):
             _, label = x
-            if args.dataset == 'cifar10':
-                if args.attack_mode in ['MR', 'COMBINE']:
+            if self.params['dataset'] == 'cifar10':
+                if self.params['is_poison'] and self.params['attack_mode'] in ['MR', 'COMBINE']:
                     if ind in self.params['poison_images'] or ind in self.params['poison_images_test']:
                         continue
-            if label in cifar_classes:
-                cifar_classes[label].append(ind)
+            if label in img_classes:
+                img_classes[label].append(ind)
             else:
-                cifar_classes[label] = [ind]
+                img_classes[label] = [ind]
+        return img_classes
+
+    def sample_dirichlet_train_data(self, no_participants, alpha=0.9):
+        cifar_classes = self.get_img_classes()
         class_size = len(cifar_classes[0])
         per_participant_list = defaultdict(list)
         no_classes = len(cifar_classes.keys())
@@ -108,21 +149,9 @@ class ImageHelper(Helper):
 
         return per_participant_list
 
-    # split the dataset in a non-iid (class imbalance) fashion
+    # === split the dataset in a non-iid (class imbalance) fashion ===
     def sample_class_imbalance_train_data(self, train=True, n_clients=100, classes_per_client=3, balance=0.99, verbose=True):
-        image_classes = {}
-        if train:
-            dataset = self.train_dataset
-        else:
-            dataset = self.test_data
-        for ind, x in enumerate(dataset):
-            _, label = x
-            if ind in self.params['poison_images'] or ind in self.params['poison_images_test']:
-                continue
-            if label in image_classes:
-                image_classes[label].append(ind)
-            else:
-                image_classes[label] = [ind]
+        image_classes = self.get_img_classes()
         no_classes = len(image_classes.keys())
         n_data = sum([len(value) for value in image_classes.values()])
         per_participant_list = defaultdict(list)
@@ -165,98 +194,21 @@ class ImageHelper(Helper):
             print_split()
         return per_participant_list
 
-    def sample_poison_data(self, target_class):
-        cifar_poison_classes_ind = []
-        label_list = []
-        for ind, x in enumerate(self.test_dataset):
-            imge, label = x
-            label_list.append(label)
-            if label == target_class:
-                cifar_poison_classes_ind.append(ind)
-        return cifar_poison_classes_ind
+    def get_train(self, indices):
+        train_loader = torch.utils.data.DataLoader(self.train_dataset,
+                                                   batch_size=self.params['batch_size'],
+                                                   sampler=torch.utils.data.sampler.SubsetRandomSampler(
+                                                       indices))
+        return train_loader
 
-    def load_data_cv(self):
-        # data load
-        transform_train = transforms.Compose([
-            transforms.RandomCrop(32, padding=4),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
+    def get_test(self):
+        test_loader = torch.utils.data.DataLoader(self.test_dataset,
+                                                  batch_size=self.params['test_batch_size'],
+                                                  shuffle=False)
+        return test_loader
 
-        transform_test = transforms.Compose([
-            transforms.ToTensor(),
-            transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010)),
-        ])
-
-        if self.params['dataset'] == 'cifar10':
-            self.train_dataset = datasets.CIFAR10(self.params['data_folder'], train=True, download=True,
-                                                  transform=transform_train)
-
-            self.test_dataset = datasets.CIFAR10(self.params['data_folder'], train=False, transform=transform_test)
-
-        if self.params['dataset'] == 'cifar100':
-            self.train_dataset = datasets.CIFAR100(self.params['data_folder'], train=True, download=True,
-                                                   transform=transform_train)
-
-            self.test_dataset = datasets.CIFAR100(self.params['data_folder'], train=False, transform=transform_test,
-                                                  download=True)
-
-        if self.params['dataset'] == 'emnist':
-            if self.params['emnist_style'] == 'digits':
-                self.train_dataset = EMNIST(self.params['data_folder'], split="digits", train=True, download=True,
-                                            transform=transforms.Compose([
-                                                transforms.RandomCrop(28, padding=2),
-                                                transforms.ToTensor(),
-                                                transforms.Normalize((0.1307,), (0.3081,))
-                                            ]))
-
-                self.test_dataset = EMNIST(self.params['data_folder'], split="digits", train=False, download=True,
-                                           transform=transforms.Compose([
-                                               transforms.ToTensor(),
-                                               transforms.Normalize((0.1307,), (0.3081,))
-                                           ]))
-            elif self.params['emnist_style'] == 'byclass':
-                self.train_dataset = EMNIST(self.params['data_folder'], split="byclass", train=True, download=True,
-                                            transform=transforms.Compose([
-                                                transforms.RandomCrop(28, padding=2),
-                                                transforms.ToTensor(),
-                                                transforms.Normalize((0.1307,), (0.3081,))
-                                            ]))
-
-                self.test_dataset = EMNIST(self.params['data_folder'], split="byclass", train=False, download=True,
-                                           transform=transforms.Compose([
-                                               transforms.ToTensor(),
-                                               transforms.Normalize((0.1307,), (0.3081,))
-                                           ]))
-            elif self.params['emnist_style'] == 'letters':
-                self.train_dataset = EMNIST(self.params['data_folder'], split="letters", train=True, download=True,
-                                            transform=transforms.Compose([
-                                                transforms.RandomCrop(28, padding=2),
-                                                transforms.ToTensor(),
-                                                transforms.Normalize((0.1307,), (0.3081,))
-                                            ]))
-
-                self.test_dataset = EMNIST(self.params['data_folder'], split="letters", train=False, download=True,
-                                           transform=transforms.Compose([
-                                               transforms.ToTensor(),
-                                               transforms.Normalize((0.1307,), (0.3081,))
-                                           ]))
-
-        if self.params['dataset'] == 'fmnist':
-            self.train_dataset = datasets.FashionMNIST(self.params['data_folder'], train=True, download=False,
-                                                       transform=transforms.Compose([
-                                                           transforms.ToTensor(),
-                                                           transforms.Normalize((0.1307,), (0.3081,))
-                                                       ]))
-            self.test_dataset = datasets.FashionMNIST(self.params['data_folder'], train=False, download=False,
-                                                      transform=transforms.Compose([
-                                                          transforms.ToTensor(),
-                                                          transforms.Normalize((0.1307,), (0.3081,))
-                                                      ]))
-
-
-        # sample indices for participants using Dirichlet distribution
+    def load_distributed_data(self):
+        # === sample indices for participants using Dirichlet distribution ===
         if self.params['class_imbalance']:
             indices_per_participant = self.sample_class_imbalance_train_data(
                 n_clients=self.params['participant_population'],
@@ -267,11 +219,50 @@ class ImageHelper(Helper):
                 self.params['participant_population'],
                 alpha=self.params['dirichlet_alpha'])
 
-        train_loaders = [self.get_train(indices) for pos, indices in
-                         indices_per_participant.items()]
-        self.local_data_sizes = [len(indices) for pos, indices in indices_per_participant.items()]
+        # === divide the training set into {self.params['participant_population']} clients ===
+        train_loaders = [self.get_train(indices) for _, indices in indices_per_participant.items()]
+        self.local_data_sizes = [len(indices) for _, indices in indices_per_participant.items()]
         self.train_data = train_loaders
         self.test_data = self.get_test()
+
+    def load_root_dataset(self, samples=100):
+        img_classes = self.get_img_classes()
+        img_per_class = samples // len(img_classes)
+        indices = list()
+        for i, idxs in img_classes.items():
+            indices.extend(random.sample(idxs, img_per_class))
+        return self.get_train(indices)
+
+    def load_benign_data(self):
+        if self.params['dataset'] == 'cifar10' or \
+                self.params['dataset'] == 'emnist' or \
+                self.params['dataset'] == 'fmnist':
+            if self.params['is_poison']:
+                self.params['adversary_list'] = list(range(self.params['number_of_adversaries']))
+            else:
+                self.params['adversary_list'] = list()
+            self.benign_train_data = self.train_data
+            self.benign_test_data = self.test_data
+        else:
+            raise ValueError('Unrecognized dataset')
+
+    def load_poison_data(self):
+        if self.params['dataset'] == 'cifar10' or \
+                self.params['dataset'] == 'emnist' or \
+                self.params['dataset'] == 'fmnist':
+            self.poisoned_train_data = self.poison_dataset()
+            self.poisoned_test_data = self.poison_test_dataset()
+
+        else:
+            raise ValueError('Unrecognized dataset')
+
+    def sample_poison_data(self, target_class):
+        cifar_poison_classes_ind = []
+        for ind, x in enumerate(self.test_dataset):
+            _, label = x
+            if label == target_class:
+                cifar_poison_classes_ind.append(ind)
+        return cifar_poison_classes_ind
 
     def poison_dataset(self):
         indices = list()
@@ -311,7 +302,7 @@ class ImageHelper(Helper):
             elif args.attack_mode == 'NEUROTOXIN':
                 print(f"A T T A C K - M O D E: N E U R O T O X I N !")
             if self.params['dataset'] == 'cifar10' or self.params['dataset'] == 'cifar100':
-                # Load attackers training and testing data, which are different data
+                # === Load attackers training and testing data, which are different data ===
                 with open('../data/southwest_images_new_train.pkl', 'rb') as train_f:
                     saved_southwest_dataset_train = pickle.load(train_f)
 
@@ -529,45 +520,12 @@ class ImageHelper(Helper):
                                                    self.poison_images_ind
                                                ))
 
-    def get_train(self, indices):
-        """
-        This method is used along with Dirichlet distribution
-        :param params:
-        :param indices:
-        :return:
-        """
-        train_loader = torch.utils.data.DataLoader(self.train_dataset,
-                                                   batch_size=self.params['batch_size'],
-                                                   sampler=torch.utils.data.sampler.SubsetRandomSampler(
-                                                       indices))
-        return train_loader
-
     def get_poison_test(self, indices):
-        """
-        This method is used along with Dirichlet distribution
-        :param params:
-        :param indices:
-        :return:
-        """
         train_loader = torch.utils.data.DataLoader(self.test_dataset,
                                                    batch_size=self.params['batch_size'],
                                                    sampler=torch.utils.data.sampler.SubsetRandomSampler(
                                                        indices))
         return train_loader
 
-    def get_test(self):
-        test_loader = torch.utils.data.DataLoader(self.test_dataset,
-                                                  batch_size=self.params['test_batch_size'],
-                                                  shuffle=False)
-        return test_loader
 
-    def load_benign_data_cifar10_resnet(self):
-
-        if self.params['is_poison']:
-            self.params['adversary_list'] = list(range(self.params['number_of_adversaries']))
-        else:
-            self.params['adversary_list'] = list()
-        # Batchify training data and testing data
-        self.benign_train_data = self.train_data
-        self.benign_test_data = self.test_data
 

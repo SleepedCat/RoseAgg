@@ -1,11 +1,11 @@
 import math
 from collections import defaultdict
 
-import hdbscan
 import numpy as np
 import sklearn.metrics.pairwise as smp
 import torch
 import torch.nn.functional as F
+import hdbscan
 from scipy.linalg import eigh as largest_eigh
 from sklearn.cluster import DBSCAN, KMeans
 
@@ -102,10 +102,10 @@ def roseagg(model_updates, current_round=0):
                         clusters[clu] = [i]
                 local_norms_0 = local_norms[clusters[0]]
                 local_norms_1 = local_norms[clusters[1]]
-                if np.median(local_norms_0) > np.mean(local_norms_1):
+                if np.median(local_norms_0) > np.median(local_norms_1):
                     normalize_norm = np.median(local_norms_1)
                 else:
-                    normalize_norm = np.mean(local_norms_0)
+                    normalize_norm = np.median(local_norms_0)
             else:
                 normalize_norm = np.median(local_norms)
 
@@ -237,3 +237,50 @@ def flame(trained_params, current_model_param, param_updates):
             global_update[name] = 1 / k * global_update[name].sum(dim=0, keepdim=True)
 
     return trained_params.float().to(args.device), global_update
+
+
+def fltrust(model_updates, param_updates, clean_param_update):
+    cos = torch.nn.CosineSimilarity(dim=0)
+    g0_norm = torch.norm(clean_param_update)
+    weights = []
+    for param_update in param_updates:
+        weights.append(F.relu(cos(param_update.view(-1, 1), clean_param_update.view(-1, 1))))
+    weights = torch.tensor(weights).to(args.device).view(1, -1)
+    weights = weights / weights.sum()
+    weights = torch.where(weights[0].isnan(), torch.zeros_like(weights), weights)
+    nonzero_weights = torch.count_nonzero(weights.flatten())
+    nonzero_indices = torch.nonzero(weights.flatten()).flatten()
+
+    print(f'g0_norm: {g0_norm}, '
+          f'weights_sum: {weights.sum()}, '
+          f'*** {nonzero_weights} *** model updates are considered to be aggregated !')
+
+    normalize_weights = []
+    for param_update in param_updates:
+        normalize_weights.append(g0_norm / torch.norm(param_update))
+
+    global_update = dict()
+    for name, params in model_updates.items():
+        if 'num_batches_tracked' in name or 'running_mean' in name or 'running_var' in name:
+            global_update[name] = 1 / nonzero_weights * params[nonzero_indices].sum(dim=0, keepdim=True)
+        else:
+            global_update[name] = torch.matmul(
+                weights,
+                params * torch.tensor(normalize_weights).to(args.device).view(-1, 1))
+    return global_update
+
+
+def robust_lr(model_updates):
+    global_update = dict()
+    for name, param in model_updates.items():
+        if 'num_batches_tracked' in name or 'running_mean' in name or 'running_var' in name:
+            global_update[name] = 1 / args.participant_sample_size * \
+                                  model_updates[name].sum(dim=0, keepdim=True)
+        else:
+            signs = torch.sign(model_updates[name])
+            sm_of_signs = torch.abs(torch.sum(signs, dim=0, keepdim=True))
+            sm_of_signs[sm_of_signs < args.robustLR_threshold] = -1
+            sm_of_signs[sm_of_signs >= args.robustLR_threshold] = 1
+            global_update[name] = 1 / args.participant_sample_size * \
+                                  (sm_of_signs * model_updates[name].sum(dim=0, keepdim=True))
+    return global_update

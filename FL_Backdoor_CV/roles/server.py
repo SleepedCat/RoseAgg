@@ -23,6 +23,8 @@ from FL_Backdoor_CV.roles.aggregation_rules import roseagg
 from FL_Backdoor_CV.roles.aggregation_rules import avg
 from FL_Backdoor_CV.roles.aggregation_rules import foolsgold
 from FL_Backdoor_CV.roles.aggregation_rules import flame
+from FL_Backdoor_CV.roles.aggregation_rules import fltrust
+from FL_Backdoor_CV.roles.aggregation_rules import robust_lr
 
 
 def softmax(x):
@@ -120,9 +122,10 @@ class Server:
         # === root dataset ===
         self.root_dataset = None
         if args.aggregation_rule == 'fltrust':
-            being_sampled_indices = list(range(args.participant_sample_size))
-            subset_data_chunks = random.sample(being_sampled_indices, 1)[0]
-            self.root_dataset = self.helper.benign_train_data[subset_data_chunks]
+            # being_sampled_indices = list(range(args.participant_sample_size))
+            # subset_data_chunks = random.sample(being_sampled_indices, 1)[0]
+            # self.root_dataset = self.helper.benign_train_data[subset_data_chunks]
+            self.root_dataset = self.helper.load_root_dataset()
 
     def select_participants(self):
         self.current_round += 1
@@ -180,12 +183,6 @@ class Server:
                 param_updates.append(parameters_to_vector(trained_local_model.parameters()) - parameters_to_vector(
                     self.model.parameters()))
             elif args.aggregation_rule.lower() == 'flame':
-                # trained_param = None
-                # for name, param in trained_local_model.state_dict().items():
-                #     if trained_param is not None:
-                #         trained_param = torch.cat((trained_param, param.detach().cpu().view(-1)))
-                #     else:
-                #         trained_param = param.detach().cpu().view(-1)
                 trained_param = parameters_to_vector(trained_local_model.parameters()).detach().cpu()
                 trained_params.append(trained_param)
 
@@ -243,35 +240,21 @@ class Server:
             global_update = roseagg(model_updates, current_round=self.current_round)
         elif args.aggregation_rule.lower() == 'foolsgold':
             global_update = foolsgold(model_updates)
-        elif args.aggregation_rule.lower() == 'rlr':
-            global_update = Server.robust_lr(model_updates)
+        elif args.aggregation_rule.lower() == 'flame':
+            current_model_param = parameters_to_vector(self.model.parameters()).detach().cpu()
+            global_param, global_update = flame(trained_params, current_model_param, model_updates)
+            vector_to_parameters(global_param, self.model.parameters())
+            model_param = self.model.state_dict()
+            for name, param in model_param.items():
+                if 'num_batches_tracked' in name or 'running_mean' in name or 'running_var' in name:
+                    model_param[name] = param.data + global_update[name].view(param.size())
+            self.model.load_state_dict(model_param)
+            return
         elif args.aggregation_rule.lower() == 'fltrust':
-            # lr_init = self.helper.params['lr']
-            # traget_lr = self.helper.params['target_lr']
-            #
-            # if self.helper.params['dataset'] == 'emnist':
-            #     lr = 0.0001
-            #     if self.helper.params['emnist_style'] == 'byclass':
-            #         if self.current_round <= 500:
-            #             lr = self.current_round * (traget_lr - lr_init) / 499.0 + lr_init - (
-            #                         traget_lr - lr_init) / 499.0
-            #         else:
-            #             lr = self.current_round * (-traget_lr) / 1500 + traget_lr * 4.0 / 3.0
-            #
-            #             if lr <= 0.0001:
-            #                 lr = 0.0001
-            # else:
-            #     if self.current_round <= 500:
-            #         lr = self.current_round * (traget_lr - lr_init) / 499.0 + lr_init - (traget_lr - lr_init) / 499.0
-            #     else:
-            #         lr = self.current_round * (-traget_lr) / 1500 + traget_lr * 4.0 / 3.0
-            #         if lr <= args.local_lr_min:
-            #             lr = args.local_lr_min
-            lr = args.local_lr
-            if self.current_round > 2000:
-                lr = lr * args.local_lr_decay ** (self.current_round - 2000)
-            if args.is_poison:
-                lr = args.local_lr_min
+            if self.current_round > 500:
+                lr = args.local_lr * args.local_lr_decay ** ((self.current_round - 500) // args.decay_step)
+            else:
+                lr = args.local_lr
             model = copy.deepcopy(self.model)
             model.load_state_dict(self.model.state_dict())
             optimizer = torch.optim.SGD(model.parameters(), lr=lr,
@@ -287,25 +270,12 @@ class Server:
                     loss.backward()
                     optimizer.step()
 
-            # clean_model_update = dict()
-            # for (name, param), root_param in zip(self.model.state_dict().items(), model.state_dict().values()):
-            #     clean_model_update[name] = root_param.data.view(1, -1) - param.data.view(1, -1)
-
             clean_param_update = parameters_to_vector(model.parameters()) - parameters_to_vector(
                 self.model.parameters())
 
-            global_update = Server.fltrust(model_updates, param_updates, clean_param_update)
-            global_lr = 0.2
-        elif args.aggregation_rule.lower() == 'flame':
-            current_model_param = parameters_to_vector(self.model.parameters()).detach().cpu()
-            global_param, global_update = flame(trained_params, current_model_param, model_updates)
-            vector_to_parameters(global_param, self.model.parameters())
-            model_param = self.model.state_dict()
-            for name, param in model_param.items():
-                if 'num_batches_tracked' in name or 'running_mean' in name or 'running_var' in name:
-                    model_param[name] = param.data + global_update[name].view(param.size())
-            self.model.load_state_dict(model_param)
-            return
+            global_update = fltrust(model_updates, param_updates, clean_param_update)
+        elif args.aggregation_rule.lower() == 'rlr':
+            global_update = robust_lr(model_updates)
 
         # === update the global model ===
         model_param = self.model.state_dict()
@@ -336,7 +306,6 @@ class Server:
             else:
                 test_l, test_acc = test_poison_cv(self.helper, self.helper.poisoned_test_data, self.model)
                 return test_l, test_acc
-
 
     @staticmethod
     def fedcie(model_updates, previous_model_update=None, last_model_params=None):
@@ -751,46 +720,5 @@ class Server:
                 # principal_direction *= min(local_norms)
 
                 global_update[name] = principal_direction
-        return global_update
-
-    @staticmethod
-    def robust_lr(model_updates):
-        global_update = dict()
-        for name, param in model_updates.items():
-            if 'num_batches_tracked' in name or 'running_mean' in name or 'running_var' in name:
-                global_update[name] = 1 / args.participant_sample_size * \
-                                      model_updates[name].sum(dim=0, keepdim=True)
-            else:
-                signs = torch.sign(model_updates[name])
-                sm_of_signs = torch.abs(torch.sum(signs, dim=0, keepdim=True))
-                sm_of_signs[sm_of_signs < args.robustLR_threshold] = -1
-                sm_of_signs[sm_of_signs >= args.robustLR_threshold] = 1
-                global_update[name] = 1 / args.participant_sample_size * \
-                                      (sm_of_signs * model_updates[name].sum(dim=0, keepdim=True))
-        return global_update
-
-    @staticmethod
-    def fltrust(model_updates, param_updates, clean_param_update):
-        cos = torch.nn.CosineSimilarity(dim=0)
-        g0_norm = torch.norm(clean_param_update)
-        weights = []
-        for param_update in param_updates:
-            weights.append(F.relu(cos(param_update.view(-1, 1), clean_param_update.view(-1, 1))))
-        weights = torch.tensor(weights).to(args.device).view(1, -1)
-        weights = weights / weights.sum()
-        weights = torch.where(weights[0].isnan(), torch.zeros_like(weights), weights)
-        print(weights.cpu().data)
-
-        normalize_weights = []
-        for param_update in param_updates:
-            normalize_weights.append(g0_norm / torch.norm(param_update))
-
-        global_update = dict()
-        for name, params in model_updates.items():
-            if 'num_batches_tracked' in name or 'running_mean' in name or 'running_var' in name:
-                global_update[name] = 1 / args.participant_sample_size * params.sum(dim=0, keepdim=True)
-            else:
-                global_update[name] = torch.matmul(weights,
-                                                   params * torch.tensor(normalize_weights).to(args.device).view(-1, 1))
         return global_update
 
