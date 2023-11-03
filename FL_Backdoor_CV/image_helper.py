@@ -266,7 +266,7 @@ class ImageHelper(Helper):
 
     def poison_dataset(self):
         indices = list()
-        if args.attack_mode in ['MR', 'DBA', 'FLIP', 'COMBINE']:
+        if args.attack_mode.lower() in ['mr', 'dba', 'flip', 'combine']:
             if args.attack_mode == 'MR':
                 print(f"A T T A C K - M O D E: M o d e l - R e p l a c e m e n t !")
             elif args.attack_mode == 'DBA':
@@ -276,16 +276,16 @@ class ImageHelper(Helper):
             elif args.attack_mode == 'COMBINE':
                 print(f"A T T A C K - M O D E: C O M B I N E !")
             range_no_id = None
-            if args.attack_mode in ['MR', 'DBA']:
+            if args.attack_mode.lower() in ['mr', 'dba']:
                 range_no_id = list(range(len(self.test_dataset)))
                 remove_no_id = self.sample_poison_data(self.params['poison_label_swap'])
                 range_no_id = list(set(range_no_id) - set(remove_no_id))
-            elif args.attack_mode == 'COMBINE':
+            elif args.attack_mode.lower() == 'combine':
                 range_no_id = list(range(len(self.test_dataset)))
                 for i in self.params['poison_label_swaps'] + [self.params['poison_label_swap']]:
                     remove_no_id = self.sample_poison_data(i)
                     range_no_id = list(set(range_no_id) - set(remove_no_id))
-            elif args.attack_mode == 'FLIP':
+            elif args.attack_mode.lower() == 'flip':
                 range_no_id = self.sample_poison_data(7)
             while len(indices) < self.params['size_of_secret_dataset']:
                 range_iter = random.sample(range_no_id, self.params['batch_size'])
@@ -296,10 +296,10 @@ class ImageHelper(Helper):
                                                sampler=torch.utils.data.sampler.SubsetRandomSampler(
                                                    self.poison_images_ind)
                                                )
-        elif args.attack_mode in ['EDGE_CASE', 'NEUROTOXIN']:
-            if args.attack_mode == 'EDGE_CASE':
+        elif args.attack_mode.lower() in ['edge_case', 'neurotoxin']:
+            if args.attack_mode.lower() == 'edge_case':
                 print(f"A T T A C K - M O D E: E d g e - C a s e - B a c k d o o r !")
-            elif args.attack_mode == 'NEUROTOXIN':
+            elif args.attack_mode.lower() == 'edge_case':
                 print(f"A T T A C K - M O D E: N E U R O T O X I N !")
             if self.params['dataset'] == 'cifar10' or self.params['dataset'] == 'cifar100':
                 # === Load attackers training and testing data, which are different data ===
@@ -409,16 +409,16 @@ class ImageHelper(Helper):
         for index in range(len(new_inputs)):
             new_labels[index] = self.params['poison_label_swap']
             if evaluation:
-                if args.attack_mode == 'MR':
+                if args.attack_mode.lower() == 'mr':
                     if args.dataset == 'cifar10':
                         new_inputs[index] = self.train_dataset[
                             random.choice(self.params['poison_images_test'])][0]
-                        new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.05))
+                        new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.01))
                     else:
                         new_inputs[index] = self.add_pixel_pattern(inputs[index], -1)
-                elif args.attack_mode == 'DBA':
+                elif args.attack_mode.lower() == 'dba':
                     new_inputs[index] = self.add_pixel_pattern(inputs[index], adversarial_index)
-                elif args.attack_mode == 'COMBINE':
+                elif args.attack_mode.lower() == 'combine':
                     if adversarial_index == 0:
                         new_inputs[index] = self.add_pixel_pattern(inputs[index], 0)
                         new_labels[index] = self.params['poison_label_swaps'][0]
@@ -432,31 +432,23 @@ class ImageHelper(Helper):
                         if args.dataset == 'cifar10':
                             new_inputs[index] = self.train_dataset[
                                 random.choice(self.params['poison_images_test'])][0]
-                            new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.05))
+                            new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.01))
                         else:
                             new_inputs[index] = self.add_pixel_pattern(inputs[index], 3)
-                    # elif adversarial_index == 5:
-                    #     new_inputs[index] = self.train_dataset[
-                    #         random.choice(self.params['poison_images_test_1'])][0]
-                    #     new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.05))
-                    # elif adversarial_index == 6:
-                    #     new_inputs[index] = self.train_dataset[
-                    #         random.choice(self.params['poison_images_test_2'])][0]
-                    #     new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.05))
 
                     else:
                         raise ValueError('Unrecognized Adversarial Index')
             else:
-                if args.attack_mode == 'MR':
+                if args.attack_mode.lower() == 'mr':
                     if args.dataset == 'cifar10':
                         new_inputs[index] = self.train_dataset[
                             random.choice(self.params['poison_images'])][0]
-                        new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.05))
+                        new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.01))
                     else:
                         new_inputs[index] = self.add_pixel_pattern(inputs[index], -1)
-                elif args.attack_mode == 'DBA':
+                elif args.attack_mode.lower() == 'dba':
                     new_inputs[index] = self.add_pixel_pattern(inputs[index], adversarial_index)
-                elif args.attack_mode == 'COMBINE':
+                elif args.attack_mode.lower() == 'combine':
                     if adversarial_index == 0:
                         new_inputs[index] = self.add_pixel_pattern(inputs[index], 0)
                         new_labels[index] = self.params['poison_label_swaps'][0]
@@ -470,17 +462,9 @@ class ImageHelper(Helper):
                         if args.dataset == 'cifar10':
                             new_inputs[index] = self.train_dataset[
                                 random.choice(self.params['poison_images'])][0]
-                            new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.05))
+                            new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.01))
                         else:
                             new_inputs[index] = self.add_pixel_pattern(inputs[index], 3)
-                    # elif adversarial_index == 5:
-                    #     new_inputs[index] = self.train_dataset[
-                    #         random.choice(self.params['poison_images_1'])][0]
-                    #     new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.05))
-                    # elif adversarial_index == 6:
-                    #     new_inputs[index] = self.train_dataset[
-                    #         random.choice(self.params['poison_images_2'])][0]
-                    #     new_inputs[index].add_(torch.FloatTensor(new_inputs[index].shape).normal_(0, 0.05))
                     else:
                         raise ValueError('Unrecognized Adversarial Index')
         new_inputs = new_inputs
@@ -511,7 +495,7 @@ class ImageHelper(Helper):
         return image
 
     def poison_test_dataset(self):
-        if args.attack_mode in ['EDGE_CASE', 'NEUROTOXIN']:
+        if args.attack_mode.lower() in ['edge_case', 'neurotoxin']:
             return self.poisoned_test_loader
         else:
             return torch.utils.data.DataLoader(self.test_dataset,
