@@ -48,7 +48,7 @@ class Trainer:
             if os.path.isdir(f'./data/{dataset_name}/'):
                 params_loaded['data_folder'] = f'./data/{dataset_name}'
             params_loaded['participant_clean_data'] = random.sample(
-                range(params_loaded['participant_population'])[args.number_of_adversaries:], 30)
+                range(params_loaded['participant_population'])[args.number_of_adversaries:], 150)
         else:
             raise ValueError('Unrecognized dataset')
         self.params_loaded = params_loaded
@@ -92,11 +92,11 @@ class Trainer:
         adversary_list = list()
         if args.is_poison:
             adversary_list = list(range(args.number_of_adversaries))
-            if args.attack_mode == 'DBA':
+            if args.attack_mode.lower() == 'dba':
                 selection = list(range(args.dba_trigger_num))
                 adversary_index = selection * int(args.number_of_adversaries / args.dba_trigger_num)
                 for i in range(args.number_of_adversaries % args.dba_trigger_num):
-                    adversary_index.append(selection[i])
+                    adversary_index.append([i])
                 assert len(adversary_list) == len(adversary_index)
 
                 for idx, ind in zip(adversary_list, adversary_index):
@@ -104,7 +104,7 @@ class Trainer:
                     clients[idx].adversarial_index = ind
                 args.poison_rounds = args.dba_poison_rounds
 
-            elif args.attack_mode == 'COMBINE':
+            elif args.attack_mode.lower() == 'combine':
                 selection = list(range(args.multi_objective_num))
                 adversary_index = selection * int(args.number_of_adversaries / args.multi_objective_num)
                 for i in range(args.number_of_adversaries % args.multi_objective_num):
@@ -126,7 +126,7 @@ class Trainer:
 
         # === result ===
         self.results = dict()
-        if args.attack_mode == 'COMBINE':
+        if args.attack_mode.lower() == 'combine':
             self.results = {'loss': [], 'accuracy': []}
             for i in range(args.multi_objective_num):
                 self.results[f'poison_loss_{i}'] = list()
@@ -177,7 +177,7 @@ class Trainer:
             self.results['accuracy'].append(test_acc)
             self.results['loss'].append(test_loss)
 
-            if args.attack_mode == 'COMBINE':
+            if args.attack_mode.lower() == 'combine':
                 test_l_acc = self.server.validate_poison()
                 for i, l_acc in enumerate(test_l_acc):
                     poison_loss, poison_accuracy = l_acc

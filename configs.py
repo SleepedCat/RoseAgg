@@ -55,7 +55,7 @@ parser.add_argument('--poison_prob', type=float, default=0,
                     help='poison probability each round')
 
 # === aggregation rule on the server ===
-parser.add_argument('--aggregation_rule', default='fltrust', type=str,
+parser.add_argument('--aggregation_rule', default='avg', type=str,
                     choices=['avg', 'rlr', 'flame', 'foolsgold', 'roseagg', 'fltrust', 'fedcie'],
                     help='aggregation method')
 
@@ -91,16 +91,18 @@ parser.add_argument('--decay', type=float, default=5e-4,
 
 # === attack mode ===
 parser.add_argument('--attack_mode', default='MR', type=str,
-                    choices=['MR', 'DBA', 'EDGE_CASE', 'FLIP', 'NEUROTOXIN', 'COMBINE'],
-                    help='aggregation method')
+                    help='aggregation method, [MR, DBA, EDGE_CASE, FLIP, NEUROTOXIN, COMBINE]')
 
-parser.add_argument('--num_poisoned_samples', default=9, type=int,
+parser.add_argument('--num_poisoned_samples', default=6, type=int,
                     help='the number of poisoned samples in one batch')
 
 parser.add_argument('--dba_trigger_num', default=4, type=int,
                     help='the number of distributed triggers')
 
-parser.add_argument('--dba_poison_rounds', default='3001,3003,3005,3007', type=str,
+parser.add_argument('--dba_poison_rounds',
+                    default='2001,2003,2005,2007,2011,2013,2015,2017,2021,2023,2025,2027,'
+                            '2031,2033,2035,2037,2041,2043,2045,2047,2051,2053,2055,2057',
+                    type=str,
                     help="if {attack_mode} == 'DBA', the poison rounds is {dba_poison_rounds}")
 
 parser.add_argument('--mal_boost', default=0, type=int,
@@ -112,7 +114,7 @@ parser.add_argument('--gradmask_ratio', default=0.5, type=float,
 parser.add_argument('--multi_objective_num', default=4, type=int,
                     help='The number of injected backdoors. Default: wall ---> 2, pixel ---> 3')
 
-parser.add_argument('--alternating_minimization', default=1, type=int,
+parser.add_argument('--alternating_minimization', default=0, type=int,
                     help='')
 
 # === save model ===
@@ -153,18 +155,6 @@ parser.add_argument('--start_epoch', default=2001, type=int,
                     help='Load pre-trained benign model that has been trained '
                          'for start_epoch - 1 epoches, and resume from here')
 
-parser.add_argument('--aggregate_all_layer', default=0, type=int,
-                    help='aggregate_all_layer')
-
-parser.add_argument('--run_slurm', default=0, type=int,
-                    help='run_slurm')
-
-parser.add_argument('--same_structure', default=False, type=bool,
-                    help='same_structure')
-
-parser.add_argument('--num_middle_token_same_structure', default=300, type=int,
-                    help='num_middle_token_same_structure')
-
 parser.add_argument('--semantic_target', default=False, type=bool,
                     help='semantic_target')
 
@@ -182,5 +172,9 @@ parser.add_argument('--attack_num', default=40, type=int,
 
 parser.add_argument('--edge_case', default=0, type=int,
                     help='edge_case or not')
+
+parser.add_argument('--show_process', default=0, type=int)
+
+parser.add_argument('--aggregate_all_layer', default=1, type=int)
 
 args = parser.parse_args()

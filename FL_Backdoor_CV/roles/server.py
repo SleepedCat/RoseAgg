@@ -36,7 +36,7 @@ class Server:
     def __init__(self, helper, clients, adversary_list):
         # === model ===
         if args.resume:
-            self.model = torch.load(os.path.join('../saved_models', args.resumed_name),
+            self.model = torch.load(os.path.join('../saved_models/Revision_1', args.resumed_name),
                                     map_location=args.device)
         else:
             self.model = create_model()
@@ -65,7 +65,7 @@ class Server:
         if args.resume:
             self.current_round = int(re.findall(r'\d+\d*', args.resumed_name.split('/')[1])[0])
             test_l, test_acc = self.validate()
-            if args.attack_mode == 'COMBINE':
+            if args.attack_mode.lower() == 'combine':
                 test_l_acc = self.validate_poison()
                 print(f"\n--------------------- T e s t - L o a d e d - M o d e l ---------------------")
                 print(f"Accuracy on testset: {test_acc: .4f}, Loss on testset: {test_l: .4f}.")
@@ -121,7 +121,7 @@ class Server:
 
         # === root dataset ===
         self.root_dataset = None
-        if args.aggregation_rule == 'fltrust':
+        if args.aggregation_rule.lower() == 'fltrust':
             # being_sampled_indices = list(range(args.participant_sample_size))
             # subset_data_chunks = random.sample(being_sampled_indices, 1)[0]
             # self.root_dataset = self.helper.benign_train_data[subset_data_chunks]
@@ -134,9 +134,9 @@ class Server:
             self.participants = random.sample(range(args.participant_population), args.participant_sample_size)
         else:
             if self.current_round in self.poison_rounds:
-                if args.attack_mode == 'DBA':
+                if args.attack_mode.lower() == 'dba':
                     candidates = list()
-                    adversarial_index = self.poison_rounds.index(self.current_round)
+                    adversarial_index = self.poison_rounds.index(self.current_round) % args.dba_trigger_num
                     for client_id in self.adversary_list:
                         if self.clients[client_id].adversarial_index == adversarial_index:
                             candidates.append(client_id)
@@ -207,21 +207,21 @@ class Server:
             # if args.gradient_correction:
             #     previous_model_update[name] = param.data.view(1, -1) - previous_model_params[name].view(1, -1)
             #     last_model_params[name] = param.data.view(1, -1)
-            if args.attack_mode in ['MR', 'DBA', 'FLIP', 'EDGE_CASE', 'NEUROTOXIN', 'COMBINE']:
+            if args.attack_mode.lower() in ['mr', 'dba', 'flip', 'edge_case', 'neurotoxin', 'combine']:
                 if 'num_batches_tracked' not in name:
                     for i in range(args.participant_sample_size):
                         if self.clients[self.participants[i]].malicious:
                             mal_boost = 1
                             if args.is_poison:
                                 if args.mal_boost:
-                                    if args.attack_mode in ['MR', 'FLIP', 'EDGE_CASE', 'NEUROTOXIN', 'COMBINE']:
+                                    if args.attack_mode.lower() in ['mr', 'flip', 'edge_case', 'neurotoxin', 'combine']:
                                         mal_boost = args.mal_boost / args.number_of_adversaries
-                                    elif args.attack_mode == 'DBA':
+                                    elif args.attack_mode.lower() == 'dba':
                                         mal_boost = args.mal_boost / (args.number_of_adversaries / args.dba_trigger_num)
                                 else:
-                                    if args.attack_mode in ['MR', 'FLIP', 'EDGE_CASE', 'NEUROTOXIN', 'COMBINE']:
+                                    if args.attack_mode.lower() in ['mr', 'flip', 'edge_case', 'neurotoxin', 'combine']:
                                         mal_boost = args.participant_sample_size / args.number_of_adversaries
-                                    elif args.attack_mode == 'DBA':
+                                    elif args.attack_mode.lower() == 'dba':
                                         mal_boost = args.participant_sample_size / \
                                                     (args.number_of_adversaries / args.dba_trigger_num)
                             model_updates[name][i] *= (mal_boost / args.global_lr)
@@ -296,7 +296,7 @@ class Server:
 
     def validate_poison(self):
         with torch.no_grad():
-            if args.attack_mode == 'COMBINE':
+            if args.attack_mode.lower() == 'combine':
                 test_l_acc = []
                 for i in range(args.multi_objective_num):
                     test_l, test_acc = test_poison_cv(self.helper, self.helper.poisoned_test_data,

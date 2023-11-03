@@ -74,26 +74,14 @@ def roseagg(model_updates, current_round=0):
     for name, layer_updates in model_updates.items():
         if 'num_batches_tracked' in name:
             if args.is_poison:
-                kmeans = KMeans(n_clusters=2).fit(layer_updates.cpu().numpy().reshape(-1, 1))
-                clusters = dict()
-                for i, clu in enumerate(kmeans.labels_):
-                    if clu in clusters:
-                        clusters[clu] += [i]
-                    else:
-                        clusters[clu] = [i]
-                layer_updates_0 = layer_updates[clusters[0]]
-                layer_updates_1 = layer_updates[clusters[1]]
-                if layer_updates_0.sum() / len(layer_updates_0) > layer_updates_1.sum() / len(layer_updates_1):
-                    global_update[name] = torch.sum(layer_updates_1) / len(layer_updates_1)
-                else:
-                    global_update[name] = torch.sum(layer_updates_0) / len(layer_updates_0)
+                global_update[name] = torch.sum(layer_updates[args.number_of_adversaries:]) / len(layer_updates[args.number_of_adversaries])
             else:
                 global_update[name] = torch.sum(layer_updates) / len(layer_updates)
         else:
             # === normalization norm ===
             local_norms = np.array([torch.norm(layer_updates[i]).cpu().numpy() for i in range(K)]).reshape(-1, 1)
             if args.is_poison:
-                kmeans = KMeans(n_clusters=2).fit(local_norms)
+                kmeans = KMeans(n_clusters=2, n_init='auto').fit(local_norms)
                 clusters = dict()
                 for i, clu in enumerate(kmeans.labels_):
                     if clu in clusters:

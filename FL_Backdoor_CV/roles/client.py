@@ -23,139 +23,124 @@ class Client:
     def local_train(self, local_model, helper, epoch, criterion=torch.nn.CrossEntropyLoss()):
         local_data = self.local_data
         if self.malicious:
-            # === clean part of malicious clients ===
+            # === clean part of malicious clients.
+            # === we need to remove indices corresponding to the target label when attackers conduct local training. ===
             if self.range_no_id is None:
                 range_no_id = list(range(len(helper.train_dataset)))
 
-                if args.attack_mode in ['MR', 'DBA', 'FLIP']:
+                if args.attack_mode.lower() in ['mr', 'dba', 'flip']:
                     for ind, x in enumerate(helper.train_dataset):
                         imge, label = x
                         if label == helper.params['poison_label_swap']:
                             range_no_id.remove(ind)
+
                     if args.dataset == 'cifar10':
-                        if args.attack_mode == 'MR':
+                        if args.attack_mode.lower() == 'mr':
                             for image in helper.params['poison_images_test'] + \
                                          helper.params['poison_images']:
                                 if image in range_no_id:
                                     range_no_id.remove(image)
-                elif args.attack_mode == 'COMBINE':
+
+                elif args.attack_mode.lower() == 'combine':
                     target_label = None
                     if self.adversarial_index == 0:
-                        target_label = 0
+                        target_label = helper.params['poison_label_swaps'][0]
                     elif self.adversarial_index == 1:
-                        target_label = 1
+                        target_label = helper.params['poison_label_swaps'][1]
                     elif self.adversarial_index == 2:
-                        target_label = 6
+                        target_label = helper.params['poison_label_swaps'][2]
                     elif self.adversarial_index == 3:
                         target_label = helper.params['poison_label_swap']
                     for ind, x in enumerate(helper.train_dataset):
                         imge, label = x
                         if label == target_label:
                             range_no_id.remove(ind)
+
                     if args.dataset == 'cifar10':
-                        if self.adversarial_index == 4:
+                        if self.adversarial_index == 3:
                             for image in helper.params['poison_images_test'] + \
                                          helper.params['poison_images']:
                                 if image in range_no_id:
                                     range_no_id.remove(image)
-                elif args.attack_mode == ['EDGE_CASE', 'NEUROTOXIN']:
+
+                elif args.attack_mode.lower() in ['edge_case', 'neurotoxin']:
                     pass
+
                 random.shuffle(range_no_id)
                 self.range_no_id = range_no_id
 
             # === malicious training ===
-            poison_optimizer = torch.optim.SGD(local_model.parameters(), lr=helper.params['poison_lr'],
-                                               momentum=helper.params['poison_momentum'],
-                                               weight_decay=helper.params['poison_decay'])
-            if args.attack_mode in ['MR', 'DBA', 'FLIP', 'COMBINE']:
+            poison_optimizer = optim.SGD(local_model.parameters(), lr=helper.params['poison_lr'],
+                                         momentum=helper.params['poison_momentum'],
+                                         weight_decay=helper.params['poison_decay'])
+            if args.attack_mode.lower() in ['mr', 'dba', 'flip', 'combine']:
                 for internal_epoch in range(1, 1 + helper.params['retrain_poison']):
 
-                    # being_sampled_indices = copy.deepcopy(helper.params['participant_clean_data'])
-                    # subset_data_chunks = random.sample(being_sampled_indices, 1)[0]
-                    # being_sampled_indices.remove(subset_data_chunks)
-                    # for (x1, x2) in zip(helper.poisoned_train_data, helper.benign_train_data[subset_data_chunks]):
                     indices = random.sample(self.range_no_id, args.batch_size - args.num_poisoned_samples)
 
                     if args.alternating_minimization:
 
                         for x in helper.poisoned_train_data:
                             inputs_p, labels_p = None, None
-                            if args.attack_mode == 'MR':
+                            if args.attack_mode.lower() == 'mr':
                                 inputs_p, labels_p = helper.get_poison_batch(x)
-                            elif args.attack_mode in ['DBA', 'COMBINE']:
+                            elif args.attack_mode.lower() in ['dba', 'combine']:
                                 inputs_p, labels_p = helper.get_poison_batch(x, adversarial_index=self.adversarial_index)
-                            elif args.attack_mode == 'FLIP':
+                            elif args.attack_mode.lower() == 'flip':
                                 inputs_p, labels_p = x
                                 for pos in range(labels_p.size(0)):
                                     labels_p[pos] = helper.params['poison_label_swap']
                             poison_optimizer.zero_grad()
-                            output = local_model(inputs_p.cuda())
-                            loss = criterion(output, labels_p.cuda())
+                            output = local_model(inputs_p.to(args.device))
+                            loss = criterion(output, labels_p.to(args.device))
                             loss.backward()
                             poison_optimizer.step()
+                            break
 
                         for x in helper.get_train(indices):
                             inputs_c, labels_c = x
                             poison_optimizer.zero_grad()
-                            output = local_model(inputs_c.cuda())
-                            loss = criterion(output, labels_c.cuda())
+                            output = local_model(inputs_c.to(args.device))
+                            loss = criterion(output, labels_c.to(args.device))
                             loss.backward()
                             poison_optimizer.step()
+                            break
 
                     else:
 
                         for (x1, x2) in zip(helper.poisoned_train_data, helper.get_train(indices)):
                             inputs_p, labels_p = None, None
-                            if args.attack_mode == 'MR':
+                            if args.attack_mode.lower() == 'mr':
                                 inputs_p, labels_p = helper.get_poison_batch(x1)
-                            elif args.attack_mode in ['DBA', 'COMBINE']:
+                            elif args.attack_mode.lower() in ['dba', 'combine']:
                                 inputs_p, labels_p = helper.get_poison_batch(x1, adversarial_index=self.adversarial_index)
-                            elif args.attack_mode == 'FLIP':
+                            elif args.attack_mode.lower() == 'flip':
                                 inputs_p, labels_p = x1
                                 for pos in range(labels_p.size(0)):
                                     labels_p[pos] = helper.params['poison_label_swap']
+
                             inputs_c, labels_c = x2
-                            if args.attack_mode == 'FLIP':
+                            if args.attack_mode.lower() == 'flip':
                                 for pos in range(labels_c.size(0)):
                                     if labels_c[pos] == 7:
                                         labels_c[pos] = helper.params['poison_label_swap']
-                            # target_clean_data_size = args.batch_size - len(inputs_p)
-                            # target_clean_data_size -= len(inputs_c)
-                            # if target_clean_data_size > 0:
-                            #     while target_clean_data_size > 0:
-                            #         subset_data_chunks = random.sample(being_sampled_indices, 1)[0]
-                            #         being_sampled_indices.remove(subset_data_chunks)
-                            #         for inputs_c_c, labels_c_c in helper.benign_train_data[subset_data_chunks]:
-                            #             if args.attack_mode == 'FLIP':
-                            #                 for pos in range(labels_c_c.size(0)):
-                            #                     if labels_c_c[pos] == 7:
-                            #                         labels_c_c[pos] = helper.params['poison_label_swap']
-                            #             if len(inputs_c_c) - target_clean_data_size >= 0:
-                            #                 inputs_c = torch.cat((inputs_c, inputs_c_c[:target_clean_data_size]))
-                            #                 labels_c = torch.cat((labels_c, labels_c_c[:target_clean_data_size]))
-                            #             else:
-                            #                 inputs_c = torch.cat((inputs_c, inputs_c_c))
-                            #                 labels_c = torch.cat((labels_c, labels_c_c))
-                            #             target_clean_data_size -= len(inputs_c_c)
-                            #             if target_clean_data_size <= 0:
-                            #                 break
-                            # else:
-                            #     inputs_c = inputs_c[:target_clean_data_size]
-                            #     labels_c = labels_c[:target_clean_data_size]
+
                             inputs = torch.cat((inputs_p, inputs_c))
                             labels = torch.cat((labels_p, labels_c))
-                            inputs, labels = inputs.cuda(), labels.cuda()
+                            inputs, labels = inputs.to(args.device), labels.to(args.device)
                             poison_optimizer.zero_grad()
                             output = local_model(inputs)
                             loss = criterion(output, labels)
                             loss.backward()
                             poison_optimizer.step()
 
+                            break
+
                     # === test poison ===
-                    if internal_epoch % helper.params['retrain_poison'] == 0:
-                    # if internal_epoch % 1 == 0:
-                        if args.attack_mode == 'COMBINE':
-                            poison_loss, poison_acc = test_poison_cv(helper, helper.poisoned_test_data, local_model, self.adversarial_index)
+                    if args.show_process:
+                        if args.attack_mode.lower() == 'combine':
+                            poison_loss, poison_acc = test_poison_cv(helper, helper.poisoned_test_data, local_model,
+                                                                     self.adversarial_index)
                         else:
                             poison_loss, poison_acc = test_poison_cv(helper, helper.poisoned_test_data, local_model)
                         print(f"Malicious id: {self.client_id}, "
@@ -163,13 +148,24 @@ class Client:
                               f"Epoch: {internal_epoch}, "
                               f"Local poison accuracy: {poison_acc: .4f}, "
                               f"Local poison loss: {poison_loss: .4f}.")
+                    else:
+                        if internal_epoch % helper.params['retrain_poison'] == 0:
+                            if args.attack_mode.lower() == 'combine':
+                                poison_loss, poison_acc = test_poison_cv(helper, helper.poisoned_test_data, local_model, self.adversarial_index)
+                            else:
+                                poison_loss, poison_acc = test_poison_cv(helper, helper.poisoned_test_data, local_model)
+                            print(f"Malicious id: {self.client_id}, "
+                                  f"P o i s o n - N o w ! "
+                                  f"Epoch: {internal_epoch}, "
+                                  f"Local poison accuracy: {poison_acc: .4f}, "
+                                  f"Local poison loss: {poison_loss: .4f}.")
 
-            elif args.attack_mode in ['EDGE_CASE', 'NEUROTOXIN']:
-                # get gradient mask use global model and clearn data
+            elif args.attack_mode.lower() in ['edge_case', 'neurotoxin']:
+                # === get gradient mask use global model and clean data ===
                 mask_grad_list = None
-                if args.attack_mode == 'NEUROTOXIN':
+                if args.attack_mode.lower() == 'neurotoxin':
                     assert helper.params['gradmask_ratio'] != 1
-                    num_clean_data = 30
+                    num_clean_data = 150
                     subset_data_chunks = random.sample(helper.params['participant_clean_data'], num_clean_data)
                     sampled_data = [helper.benign_train_data[pos] for pos in subset_data_chunks]
                     mask_grad_list = helper.grad_mask_cv(helper, local_model, sampled_data, criterion,
@@ -177,7 +173,6 @@ class Client:
 
                 for internal_epoch in range(1, 1 + helper.params['retrain_poison']):
                     # === malicious train ===
-                    # subset_data_chunks = random.sample(helper.params['participant_clean_data'], 1)[0]
                     indices = random.sample(self.range_no_id, args.batch_size - args.num_poisoned_samples)
                     for (x1, x2) in zip(helper.poisoned_train_data, helper.get_train(indices)):
                         inputs_p, labels_p = x1
@@ -186,25 +181,33 @@ class Client:
                         for pos in range(labels_p.size(0)):
                             labels_p[pos] = helper.params['poison_label_swap']
                         labels = torch.cat((labels_p, labels_c))
-                        inputs, labels = inputs.cuda(), labels.cuda()
+                        inputs, labels = inputs.to(args.device), labels.to(args.device)
                         poison_optimizer.zero_grad()
                         output = local_model(inputs)
                         loss = criterion(output, labels)
                         loss.backward()
-                        if args.attack_mode == 'NEUROTOXIN':
+                        if args.attack_mode.lower() == 'neurotoxin':
                             mask_grad_list_copy = iter(mask_grad_list)
                             for name, parms in local_model.named_parameters():
                                 if parms.requires_grad:
                                     parms.grad = parms.grad * next(mask_grad_list_copy)
                         poison_optimizer.step()
-                    if internal_epoch % helper.params['retrain_poison'] == 0:
-                    # if internal_epoch % 1 == 0:
+
+                    if args.show_process:
                         poison_loss, poison_acc = test_poison_cv(helper, helper.poisoned_test_data, local_model)
                         print(f"Malicious id: {self.client_id}, "
                               f"P o i s o n - N o w ! "
                               f"Epoch: {internal_epoch}, "
                               f"Local poison accuracy: {poison_acc: .4f}, "
                               f"Local poison loss: {poison_loss: .4f}.")
+                    else:
+                        if internal_epoch % helper.params['retrain_poison'] == 0:
+                            poison_loss, poison_acc = test_poison_cv(helper, helper.poisoned_test_data, local_model)
+                            print(f"Malicious id: {self.client_id}, "
+                                  f"P o i s o n - N o w ! "
+                                  f"Epoch: {internal_epoch}, "
+                                  f"Local poison accuracy: {poison_acc: .4f}, "
+                                  f"Local poison loss: {poison_loss: .4f}.")
 
             # === malicious test ===
             test_loss, test_acc = test_cv(helper.benign_test_data, local_model)
@@ -213,31 +216,23 @@ class Client:
                   f"Test loss: {test_loss: .4f}.")
         else:
             # === optimizer and local epochs ===
-            if args.aggregation_rule.lower() in ['roseagg', 'avg', 'fltrust']:
-                if epoch > 500:
-                    lr = args.local_lr * args.local_lr_decay ** ((epoch - 500) // args.decay_step)
-                else:
+            if not args.is_poison:
+                if args.aggregation_rule.lower() in ['roseagg', 'avg', 'fltrust']:
+                    if epoch > 500:
+                        lr = args.local_lr * args.local_lr_decay ** ((epoch - 500) // args.decay_step)
+                    else:
+                        lr = args.local_lr
+                elif args.aggregation_rule.lower() in ['flame', 'foolsgold', 'rlr']:
                     lr = args.local_lr
-            elif args.aggregation_rule.lower() in ['flame', 'foolsgold', 'rlr']:
-                lr = args.local_lr
+            else:
+                lr = args.local_lr_min
 
             """
             lr = args.local_lr
-            if args.dataset.lower() == 'cifar10':
-                if args.aggregation_rule == 'fedcie':
-                    if epoch > 500:
-                        lr = lr * args.local_lr_decay ** (epoch - 500)
-                    if lr < args.local_lr_min:
-                        lr = args.local_lr_min
-                else:
-                    if epoch > 2000:
-                        lr = lr * args.local_lr_decay ** (epoch - 2000)
             elif args.dataset.lower() == 'fmnist':
                 if epoch > 200:
                     lr = lr * 0.993 ** (epoch - 200)
             """
-            if args.is_poison:
-                lr = args.local_lr_min
             # else:
             #     lr_init = helper.params['lr']
             #     traget_lr = helper.params['target_lr']
@@ -259,9 +254,9 @@ class Client:
             #             lr = epoch * (-traget_lr) / 1500 + traget_lr * 4.0 / 3.0
             #             if lr <= args.local_lr_min:
             #                 lr = args.local_lr_min
-            optimizer = torch.optim.SGD(local_model.parameters(), lr=lr,
-                                        momentum=helper.params['momentum'],
-                                        weight_decay=helper.params['decay'])
+            optimizer = optim.SGD(local_model.parameters(), lr=lr,
+                                  momentum=helper.params['momentum'],
+                                  weight_decay=helper.params['decay'])
             epochs = helper.params['retrain_no_times']
 
             # === local training ===

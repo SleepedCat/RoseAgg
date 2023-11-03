@@ -4,6 +4,8 @@ import random
 import numpy as np
 import torch
 
+from configs import args
+
 # ========= Fix the random seed (Start) =========
 torch.manual_seed(1)
 torch.cuda.manual_seed(1)
@@ -53,13 +55,13 @@ class Helper:
                 difference[name] = weight1[name].data - layer.data
                 res.append(difference[name].view(-1))
         difference_flat = torch.cat(res)
-        l2_norm = torch.norm(difference_flat.clone().detach().cuda())
+        l2_norm = torch.norm(difference_flat.clone().detach().to(args.device))
         l2_norm_np = np.linalg.norm(difference_flat.cpu().numpy())
         return l2_norm, l2_norm_np
 
     @staticmethod
     def clip_grad(norm_bound, weight_difference, difference_flat):
-        l2_norm = torch.norm(difference_flat.clone().detach().cuda())
+        l2_norm = torch.norm(difference_flat.clone().detach().to(args.device))
         scale = max(1.0, float(torch.abs(l2_norm / norm_bound)))
         for name in weight_difference.keys():
             weight_difference[name].div_(scale)
@@ -75,7 +77,7 @@ class Helper:
         for participant_id in range(len(dataset_clearn)):
             train_data = dataset_clearn[participant_id]
             for inputs, labels in train_data:
-                inputs, labels = inputs.cuda(), labels.cuda()
+                inputs, labels = inputs.to(args.device), labels.to(args.device)
                 output = model(inputs)
                 loss = criterion(output, labels)
                 loss.backward(retain_graph=True)
@@ -94,9 +96,9 @@ class Helper:
 
                     k_layer += 1
 
-            grad_list = torch.cat(grad_list).cuda()
+            grad_list = torch.cat(grad_list).to(args.device)
             _, indices = torch.topk(-1 * grad_list, int(len(grad_list) * ratio))
-            mask_flat_all_layer = torch.zeros(len(grad_list)).cuda()
+            mask_flat_all_layer = torch.zeros(len(grad_list)).to(args.device)
             mask_flat_all_layer[indices] = 1.0
 
             count = 0
@@ -107,8 +109,8 @@ class Helper:
                 if parms.requires_grad:
                     gradients_length = len(parms.grad.abs().view(-1))
 
-                    mask_flat = mask_flat_all_layer[count:count + gradients_length].cuda()
-                    mask_grad_list.append(mask_flat.reshape(parms.grad.size()).cuda())
+                    mask_flat = mask_flat_all_layer[count:count + gradients_length].to(args.device)
+                    mask_grad_list.append(mask_flat.reshape(parms.grad.size()).to(args.device))
 
                     count += gradients_length
 
@@ -126,7 +128,7 @@ class Helper:
             for _, parms in model.named_parameters():
                 if parms.requires_grad:
                     grad_res.append(parms.grad.view(-1))
-                    l2_norm_l = torch.norm(parms.grad.view(-1).clone().detach().cuda()) / float(
+                    l2_norm_l = torch.norm(parms.grad.view(-1).clone().detach().to(args.device)) / float(
                         len(parms.grad.view(-1)))
                     l2_norm_list.append(l2_norm_l)
                     sum_grad_layer += l2_norm_l.item()
@@ -145,7 +147,7 @@ class Helper:
 
                     mask_flat = torch.zeros(gradients_length)
                     mask_flat[indices.cpu()] = 1.0
-                    mask_grad_list.append(mask_flat.reshape(parms.grad.size()).cuda())
+                    mask_grad_list.append(mask_flat.reshape(parms.grad.size()).to(args.device))
 
                     percentage_mask1 = mask_flat.sum().item() / float(gradients_length) * 100.0
 
@@ -170,6 +172,6 @@ class Helper:
                 continue
             update_per_layer = weight_accumulator[name] * (1 / self.params['partipant_sample_size']) * lr
             update_per_layer = torch.tensor(update_per_layer, dtype=data.dtype)
-            data.add_(update_per_layer.cuda())
+            data.add_(update_per_layer.to(args.device))
         return True
 

@@ -36,9 +36,9 @@ def test_poison_cv(helper, data_source, model, adversarial_index=-1):
     num_data = 0.0
     for batch_id, batch in enumerate(data_iterator):
 
-        if args.attack_mode in ['MR', 'DBA']:
+        if args.attack_mode.lower() in ['mr', 'dba']:
             data, target = helper.get_poison_batch(batch, evaluation=True)
-        elif args.attack_mode == 'COMBINE':
+        elif args.attack_mode.lower() == 'combine':
             data, target = helper.get_poison_batch(batch, evaluation=True, adversarial_index=adversarial_index)
         else:
             for pos in range(len(batch[0])):
